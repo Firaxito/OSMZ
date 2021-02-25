@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">OSMZHTTPServer</string>
+    <string name="btn1_text">Start HTTP Server</string>
+    <string name="btn2_text">Stop HTTP Server</string>
+    <string name="server_status">Server Status</string>
+    <string name="status_running">Running</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="clear_logs">Clear logs</string>
+    <string name="request_ip_address">IP address</string>
+    <string name="request_time">Request time</string>
+    <string name="request_path">Path</string>
+    <string name="request_response_code">Response Code</string>
+    <string name="request_http_version">HTTP version</string>
+
+</resources>
