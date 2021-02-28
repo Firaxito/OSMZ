@@ -11,10 +11,11 @@ import java.net.Socket
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.Semaphore
 
 class RequestWorker(
     val socket: Socket,
-    val lockObject: LockObject?,
+    val semaphore: Semaphore,
     val requestListener: OnRequestProcessed?
 ) : Thread() {
 
@@ -55,12 +56,15 @@ class RequestWorker(
 
     override fun run() {
         Log.d(TAG, "Creating new worker with id #$id")
-        try {
+        var isLockAcquired = true
 
-            if (lockObject == null) {
+        try {
+            if (!semaphore.tryAcquire()) {
+                isLockAcquired = false
                 writeGETResponse(socket, null, null, ResponseCode.CODE_503)
             } else {
 
+                Log.d("SEMAPHORE", "Remaning: ${semaphore.availablePermits()}")
                 val input = BufferedReader(InputStreamReader(socket.getInputStream()))
                 var clientInput: String?
 
@@ -104,7 +108,7 @@ class RequestWorker(
         } finally {
             Log.d("SERVER", "Socket Closed")
             if(!socket.isClosed) socket.close()
-            lockObject?.unlock()
+            if(isLockAcquired) semaphore.release()
         }
 
     }
