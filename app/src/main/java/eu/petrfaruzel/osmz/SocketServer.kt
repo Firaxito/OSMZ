@@ -43,6 +43,7 @@ class SocketServer(
     // Send data from worker to server
     // In synchronized manner, making it queue
     val onRequestProcessedListener =  object : RequestWorker.OnRequestProcessed {
+        @Synchronized
         override fun onRequestProcessed(
             headerInfo: RequestWorker.HeaderInfo,
             requestIP: String
