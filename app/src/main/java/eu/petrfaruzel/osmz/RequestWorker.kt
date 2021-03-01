@@ -40,7 +40,6 @@ class RequestWorker(
         val contentLength: Int,
         val httpProtocol : String = HTTP_PROCOTOL,
         ){
-
         fun getStringResponse() : String{
             val df: DateFormat = SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss z", Locale.getDefault())
 
@@ -60,10 +59,10 @@ class RequestWorker(
 
         try {
             if (!semaphore.tryAcquire()) {
+                // Could not acquire lock -> Return 503 (server busy) response
                 isLockAcquired = false
                 writeGETResponse(socket, null, null, ResponseCode.CODE_503)
             } else {
-
                 Log.d("SEMAPHORE", "Remaning: ${semaphore.availablePermits()}")
                 val input = BufferedReader(InputStreamReader(socket.getInputStream()))
                 var clientInput: String?
@@ -95,6 +94,8 @@ class RequestWorker(
                     Log.d("Retrieved RT", requestType.toString())
                     Log.d("Retrieved Path", path.toString())
                     writeGETResponse(socket, path, httpProtocol, ResponseCode.CODE_200)
+                } else{
+                    // TODO -> Maybe error response in the future
                 }
             }
 
@@ -106,9 +107,10 @@ class RequestWorker(
                 e.printStackTrace()
             }
         } finally {
-            Log.d("SERVER", "Socket Closed")
+            Log.d("SERVER", "Socket Closed from thread #$id")
             if(!socket.isClosed) socket.close()
             if(isLockAcquired) semaphore.release()
+            Log.d("SERVER", "Remaining semaphore connections: ${semaphore.availablePermits()}")
         }
 
     }
@@ -120,6 +122,7 @@ class RequestWorker(
 
     private fun getFileHeader(
         path: String?,
+        httpProtocol: String?,
         responseCode: ResponseCode = ResponseCode.CODE_200
     ): HeaderInfo {
 
@@ -149,6 +152,7 @@ class RequestWorker(
             responseCode = realResponseCode,
             responseTime = Calendar.getInstance(),
             contentLength = contentLength,
+            httpProtocol = httpProtocol ?: HTTP_PROCOTOL,
             requestType = RequestType.GET,
         )
     }
@@ -190,36 +194,51 @@ class RequestWorker(
     }
 
     private fun get503Content(): ByteArray {
-        return """
+        val file = getFileFromStorage("/503.html")
+        return if (file.exists()) {
+            file.readBytes()
+        } else {
+         """
         <html>
         <body>
         <p>503 Server is busy</p>
         </body>
         </html>
     """.trimIndent().encodeToByteArray()
+        }
     }
 
     // Handles response all together
     private fun writeGETResponse(socket: Socket, path: String?, httpProtocol: String?,  expectedResponse: ResponseCode = ResponseCode.CODE_200) {
+        // Path modification
+        // TODO -> Might be converted to more complex method later
         var modifiedPath = path
         if (path == "/") modifiedPath = "/index.html"
 
-        val output = socket.getOutputStream()
-        val out = BufferedWriter(OutputStreamWriter(output))
+        // Write response here
+        val output = socket.getOutputStream() // Byte data
+        val out = BufferedWriter(OutputStreamWriter(output)) // String data
 
-        var header = getFileHeader(modifiedPath, expectedResponse)
-        if(httpProtocol != null) header = header.copy(httpProtocol = httpProtocol)
+        // Create header file
+        val header = getFileHeader(modifiedPath, httpProtocol, expectedResponse)
 
+        // Write header
         out.write(header.getStringResponse())
         out.flush()
         Log.d("SERVER RESPONSE HEADER", header.getStringResponse())
+
+        // Load and write content
         val content = getContent(header.responseCode, modifiedPath)
         output.write(content)
         output.flush()
+
+        // Notify world that response is sent
         requestListener?.onRequestProcessed(
-            headerInfo = header,
+            headerInfo = header.copy(path = path),
             requestIP = (socket.remoteSocketAddress as InetSocketAddress).address.toString().removePrefix("/")
         )
+
+        // Log response content
         if(header.mimeType.contains("text")) Log.d("SERVER RESPONSE CONTENT", content.decodeToString())
         else Log.d("SERVER RESPONSE CONTENT", "Non-textual content (image probably)")
     }
@@ -251,27 +270,6 @@ class RequestWorker(
         if (clientHeader.contains("GET")) return RequestType.GET
         else if (clientHeader.contentEquals("POST")) return RequestType.POST
         else return RequestType.UNKNOWN
-    }
-
-
-    class LockObject(private val listener : OnStateChanged? = null) {
-
-        interface OnStateChanged{
-            fun onStateChanged(isLocked : Boolean)
-        }
-
-        var isLocked = false
-            private set
-
-        fun lock() {
-            isLocked = true
-            listener?.onStateChanged(true)
-        }
-
-        fun unlock() {
-            isLocked = false
-            listener?.onStateChanged(false)
-        }
     }
 
 }

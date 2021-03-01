@@ -23,6 +23,7 @@ class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
 
     override fun onBindViewHolder(holder: LogViewHolder, position: Int) = holder.bind(logs[position])
 
+    @Synchronized
     fun addLogItem(item: LogItem) {
         logs.add(item)
         notifyItemInserted(logs.size-1)

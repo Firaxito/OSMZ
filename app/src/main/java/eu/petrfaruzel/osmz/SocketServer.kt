@@ -40,11 +40,27 @@ class SocketServer(
         )
     }
 
-
+    // Send data from worker to server
+    // In synchronized manner, making it queue
+    val onRequestProcessedListener =  object : RequestWorker.OnRequestProcessed {
+        override fun onRequestProcessed(
+            headerInfo: RequestWorker.HeaderInfo,
+            requestIP: String
+        ) {
+            // Send data from server to Activity
+            requestAcceptedListener?.onRequestAccepted(
+                ipAddress = requestIP,
+                date = headerInfo.responseTime,
+                requestType = headerInfo.requestType,
+                path = headerInfo.path,
+                httpProtocol = headerInfo.httpProtocol,
+                responseCode = headerInfo.responseCode
+            )
+        }
+    }
 
     var isRunning: Boolean = false
         private set
-
 
     override fun run() {
         Log.d(TAG, "Server Waiting for requests")
@@ -54,26 +70,12 @@ class SocketServer(
             while (isRunning) {
                 val s = serverSocket.accept()
                 Log.d(TAG, "Socket Accepted")
+                Log.d(TAG, "Creating ${maxAvailableThreads -  semaphore.availablePermits() + 1}. worker")
                 RequestWorker(
                     s,
                     semaphore,
-                    object : RequestWorker.OnRequestProcessed {
-                        // Send data from worker to server
-                        override fun onRequestProcessed(
-                            headerInfo: RequestWorker.HeaderInfo,
-                            requestIP: String
-                        ) {
-                            // Send data from server to Activity
-                            requestAcceptedListener?.onRequestAccepted(
-                                ipAddress = requestIP,
-                                date = headerInfo.responseTime,
-                                requestType = headerInfo.requestType,
-                                path = headerInfo.path,
-                                httpProtocol = headerInfo.httpProtocol,
-                                responseCode = headerInfo.responseCode
-                            )
-                        }
-                    }).start()
+                    onRequestProcessedListener
+                   ).start()
             }
         } catch (e: SocketException) {
             e.printStackTrace()

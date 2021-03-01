@@ -59,6 +59,7 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
                 }
             },
             requestAcceptedListener = object : SocketServer.OnRequestAcceptedListener {
+                @Synchronized
                 override fun onRequestAccepted(
                     ipAddress: String,
                     date: Calendar,
@@ -67,7 +68,6 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
                     httpProtocol: String,
                     responseCode: ResponseCode
                 ) {
-
                     Handler(Looper.getMainLooper()).post {
                         mClearLogs.visibility = View.VISIBLE
                         logAdapter.addLogItem(
