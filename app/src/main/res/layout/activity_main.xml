@@ -11,6 +11,7 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -69,6 +70,15 @@
             android:layout_height="1px"
             android:background="@color/colorAntiTheme"/>
 
+        <FrameLayout
+            android:id="@+id/camera_preview"
+            android:layout_width="match_parent"
+            android:layout_height="180dp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1px"
+            android:background="@color/colorAntiTheme"/>
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recycler"

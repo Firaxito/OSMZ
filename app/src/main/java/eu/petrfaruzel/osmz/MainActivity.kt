@@ -1,12 +1,16 @@
 package eu.petrfaruzel.osmz
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.Camera
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.View
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -14,7 +18,12 @@ import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import eu.petrfaruzel.osmz.enums.RequestType
 import eu.petrfaruzel.osmz.enums.ResponseCode
+import java.io.File
+import java.io.FileNotFoundException
+import java.io.FileOutputStream
+import java.io.IOException
 import java.util.*
+
 
 class MainActivity : AppCompatActivity(), View.OnClickListener {
 
@@ -42,6 +51,8 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
 
         mClearLogs = findViewById(R.id.clear_logs_button)
         mClearLogs.setOnClickListener(this)
+
+        setupCamera()
     }
 
     private fun startSocketServer() {
@@ -116,7 +127,6 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
 
     }
 
-
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -126,12 +136,113 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
             READ_EXTERNAL_STORAGE -> if (grantResults.size > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 startSocketServer()
             }
+            PERMISSION_CAMERA, -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                        setupCamera()
+                } else {
+                    this.finish()
+                }
+            }
             else -> {
             }
         }
     }
 
+
+    // ######## Camera stuff ###########
+
+
+    /** Check if this device has a camera */
+    private fun checkCameraHardware(context: Context): Boolean {
+        return context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA)
+    }
+
+    /** A safe way to get an instance of the Camera object. */
+    fun getCameraInstance(): Camera? {
+        return try {
+            Camera.open(1) // attempt to get a Camera instance
+        } catch (e: Exception) {
+            // Camera is not available (in use or does not exist)
+            null // returns null if camera is unavailable
+        }
+    }
+
+    private var mCamera: Camera? = null
+    private var mPreview: CameraPreview? = null
+
+    fun hasPermissions(context: Context, vararg permissions: String): Boolean = permissions.all {
+        ActivityCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+    }
+
+
+    private fun setupCamera() {
+        val PERMISSIONS = arrayOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.RECORD_AUDIO
+        )
+
+        if (!hasPermissions(this, *PERMISSIONS)) {
+            ActivityCompat.requestPermissions(this, PERMISSIONS, PERMISSION_CAMERA)
+            return;
+        }
+
+        // Create an instance of Camera
+        mCamera = getCameraInstance()
+        mCamera?.Size(1280, 720)
+        mCamera?.parameters = mCamera?.parameters.apply { this?.setPictureSize(1280, 720) }
+
+        mPreview = mCamera?.let {
+            // Create our Preview view
+            CameraPreview(this, it)
+        }
+
+        // Set the Preview view as the content of our activity.
+        mPreview?.also {
+            val preview: FrameLayout = findViewById(R.id.camera_preview)
+            preview.addView(it)
+        }
+
+        mPicture = Camera.PictureCallback { data, _ ->
+            try {
+                CameraStream.setNewCameraImage(data)
+                /*
+                 val pictureFile: File = getFileFromStorage("camera.jpg")
+                 Log.d("PICTURE", pictureFile.toString() + " ")
+                val fos = FileOutputStream(pictureFile)
+                fos.write(data)
+                fos.close()
+                */
+            } catch (e: FileNotFoundException) {
+                Log.d(TAG, "File not found: ${e.message}")
+            } catch (e: IOException) {
+                Log.d(TAG, "Error accessing file: ${e.message}")
+            }
+            mCamera?.startPreview();
+
+        }
+        mCamera?.startPreview();
+        Timer().schedule(object  : TimerTask(){
+            override fun run() {
+
+                Handler(Looper.getMainLooper()).post {
+                    mCamera?.takePicture(null, null, mPicture)
+                }
+            }
+        }, 2500L, 333)
+    }
+
+    private var mPicture : Camera.PictureCallback? = null
+
+
+    //#############################
+
+
     companion object {
         private const val READ_EXTERNAL_STORAGE = 1
+        private const val PERMISSION_CAMERA = 2
+        private const val TAG = "MainActivity"
     }
 }

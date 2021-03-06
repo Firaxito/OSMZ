@@ -12,6 +12,7 @@ import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Semaphore
+import kotlin.Exception
 
 class RequestWorker(
     val socket: Socket,
@@ -22,6 +23,53 @@ class RequestWorker(
     companion object {
         const val TAG = "REQUEST_WORKER"
         const val HTTP_PROCOTOL = "HTTP/1.0"
+        const val MJPEG_BOUNDARY = "OSMZ_boundary"
+
+    }
+    val specialRequests =
+        listOf<Pair<String, (socket: Socket, path : String,  httpProtocol: String?, expectedResponse: ResponseCode) -> Unit>>(
+            //Requests
+            Pair("/camera/stream", this::processCameraRequest)
+        )
+
+    private fun processCameraRequest(
+        socket: Socket,
+        path: String,
+        httpProtocol: String?,
+        expectedResponse: ResponseCode = ResponseCode.CODE_200
+    ) {
+        // Write response here
+        val output = socket.getOutputStream() // Byte data
+        val out = BufferedWriter(OutputStreamWriter(output)) // String data
+
+        val header = HeaderInfo(
+            path = path,
+            mimeType = "multipart/x-mixed-replace; boundary=\"$MJPEG_BOUNDARY\"",
+            responseCode = ResponseCode.CODE_200,
+            responseTime = Calendar.getInstance(),
+            requestType = RequestType.GET,
+            contentLength = -1
+        )
+
+        // Write header
+        out.write(header.getStringResponse())
+        out.flush()
+        Log.d("SERVER RESPONSE HEADER", header.getStringResponse())
+
+        // Notify world that response is sent
+        requestListener?.onRequestProcessed(
+            headerInfo = header.copy(path = path),
+            requestIP = (socket.remoteSocketAddress as InetSocketAddress).address.toString()
+                .removePrefix("/")
+        )
+
+        Log.d("SERVER RESPONSE CONTENT", "Video stream")
+
+        CameraStream.attachSocket(socket)
+        while(!socket.isClosed && socket.isConnected) {
+            // Loop until socked is closed
+           sleep(100)
+        }
     }
 
     interface OnRequestProcessed {
@@ -32,24 +80,23 @@ class RequestWorker(
     }
 
     data class HeaderInfo(
-        val path : String?,
-        val mimeType : String,
-        val responseCode : ResponseCode,
-        val responseTime : Calendar,
-        val requestType : RequestType,
+        val path: String?,
+        val mimeType: String,
+        val responseCode: ResponseCode,
+        val responseTime: Calendar,
+        val requestType: RequestType,
         val contentLength: Int,
-        val httpProtocol : String = HTTP_PROCOTOL,
-        ){
-        fun getStringResponse() : String{
+        val httpProtocol: String = HTTP_PROCOTOL,
+    ) {
+        fun getStringResponse(): String {
             val df: DateFormat = SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss z", Locale.getDefault())
 
-            return StringBuilder()
+            val builder = StringBuilder()
                 .appendLine("$httpProtocol ${responseCode.responseText}")
                 .appendLine("Date: ${df.format(responseTime.time)}")
                 .appendLine("Content-Type: $mimeType")
-                .appendLine("Content-Length: $contentLength")
-                .appendLine()
-                .toString()
+            if (contentLength >= 0) builder.appendLine("Content-Length: $contentLength")
+            return builder.appendLine().toString()
         }
     }
 
@@ -83,7 +130,7 @@ class RequestWorker(
                             continue
                         }
                         path = getPathFromClientHeader(requestType, clientInput!!)
-                        if(path != null)
+                        if (path != null)
                             httpProtocol = getHttpProtocol(path, clientInput!!)
                     }
 
@@ -94,30 +141,26 @@ class RequestWorker(
                     Log.d("Retrieved RT", requestType.toString())
                     Log.d("Retrieved Path", path.toString())
                     writeGETResponse(socket, path, httpProtocol, ResponseCode.CODE_200)
-                } else{
+                } else {
                     // TODO -> Maybe error response in the future
                 }
             }
 
         } catch (e: IOException) {
             if (socket != null && socket!!.isClosed)
-                Log.d(TAG, "Normal exit"
-            ) else {
+                Log.d(
+                    TAG, "Normal exit"
+                ) else {
                 Log.d(TAG, "Error")
                 e.printStackTrace()
             }
         } finally {
             Log.d("SERVER", "Socket Closed from thread #$id")
-            if(!socket.isClosed) socket.close()
-            if(isLockAcquired) semaphore.release()
+            if (!socket.isClosed) socket.close()
+            if (isLockAcquired) semaphore.release()
             Log.d("SERVER", "Remaining semaphore connections: ${semaphore.availablePermits()}")
         }
 
-    }
-
-    // Can be updated later with non-obsolete android storage API
-    private fun getFileFromStorage(path: String): File {
-        return File("${Environment.getExternalStorageDirectory()}${path}")
     }
 
     private fun getFileHeader(
@@ -141,7 +184,7 @@ class RequestWorker(
             }
         }
 
-        when(realResponseCode){
+        when (realResponseCode) {
             ResponseCode.CODE_404 -> contentLength = get404Content().size
             ResponseCode.CODE_503 -> contentLength = get503Content().size
         }
@@ -157,8 +200,8 @@ class RequestWorker(
         )
     }
 
-    private fun getContent(responseCode : ResponseCode, path : String?) : ByteArray{
-        return when(responseCode){
+    private fun getContent(responseCode: ResponseCode, path: String?): ByteArray {
+        return when (responseCode) {
             ResponseCode.CODE_200 -> {
                 getFileContent(path)
             }
@@ -198,7 +241,7 @@ class RequestWorker(
         return if (file.exists()) {
             file.readBytes()
         } else {
-         """
+            """
         <html>
         <body>
         <p>503 Server is busy</p>
@@ -209,11 +252,24 @@ class RequestWorker(
     }
 
     // Handles response all together
-    private fun writeGETResponse(socket: Socket, path: String?, httpProtocol: String?,  expectedResponse: ResponseCode = ResponseCode.CODE_200) {
+    private fun writeGETResponse(
+        socket: Socket,
+        path: String?,
+        httpProtocol: String?,
+        expectedResponse: ResponseCode = ResponseCode.CODE_200
+    ) {
         // Path modification
         // TODO -> Might be converted to more complex method later
         var modifiedPath = path
         if (path == "/") modifiedPath = "/index.html"
+
+        // Check if request is in special requests
+        for (request in specialRequests) {
+            if (request.first.equals(modifiedPath, ignoreCase = true)) {
+                request.second.invoke(socket, request.first, httpProtocol, expectedResponse);
+                return
+            }
+        }
 
         // Write response here
         val output = socket.getOutputStream() // Byte data
@@ -235,11 +291,15 @@ class RequestWorker(
         // Notify world that response is sent
         requestListener?.onRequestProcessed(
             headerInfo = header.copy(path = path),
-            requestIP = (socket.remoteSocketAddress as InetSocketAddress).address.toString().removePrefix("/")
+            requestIP = (socket.remoteSocketAddress as InetSocketAddress).address.toString()
+                .removePrefix("/")
         )
 
         // Log response content
-        if(header.mimeType.contains("text")) Log.d("SERVER RESPONSE CONTENT", content.decodeToString())
+        if (header.mimeType.contains("text")) Log.d(
+            "SERVER RESPONSE CONTENT",
+            content.decodeToString()
+        )
         else Log.d("SERVER RESPONSE CONTENT", "Non-textual content (image probably)")
     }
 
@@ -262,7 +322,7 @@ class RequestWorker(
         else return null
     }
 
-    private fun getHttpProtocol(requestPath : String, clientHeader: String) : String{
+    private fun getHttpProtocol(requestPath: String, clientHeader: String): String {
         return clientHeader.substringAfter(requestPath).trim()
     }
 
@@ -271,5 +331,6 @@ class RequestWorker(
         else if (clientHeader.contentEquals("POST")) return RequestType.POST
         else return RequestType.UNKNOWN
     }
+
 
 }
