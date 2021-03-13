@@ -51,8 +51,6 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
 
         mClearLogs = findViewById(R.id.clear_logs_button)
         mClearLogs.setOnClickListener(this)
-
-        setupCamera()
     }
 
     private fun startSocketServer() {
@@ -107,10 +105,16 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
                 )
             } else {
                 startSocketServer()
+                setupCamera()
             }
         }
 
         if (v.id == R.id.button2) {
+            if(timer != null){
+                timer?.cancel()
+                timer?.purge()
+                timer = null
+            }
             server?.close()
             try {
                 server?.join()
@@ -160,7 +164,7 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
     /** A safe way to get an instance of the Camera object. */
     fun getCameraInstance(): Camera? {
         return try {
-            Camera.open(1) // attempt to get a Camera instance
+            Camera.open(0) // attempt to get a Camera instance
         } catch (e: Exception) {
             // Camera is not available (in use or does not exist)
             null // returns null if camera is unavailable
@@ -205,37 +209,46 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
             preview.addView(it)
         }
 
-        mPicture = Camera.PictureCallback { data, _ ->
-            try {
-                CameraStream.setNewCameraImage(data)
-                /*
-                 val pictureFile: File = getFileFromStorage("camera.jpg")
-                 Log.d("PICTURE", pictureFile.toString() + " ")
-                val fos = FileOutputStream(pictureFile)
-                fos.write(data)
-                fos.close()
-                */
-            } catch (e: FileNotFoundException) {
-                Log.d(TAG, "File not found: ${e.message}")
-            } catch (e: IOException) {
-                Log.d(TAG, "Error accessing file: ${e.message}")
-            }
-            mCamera?.startPreview();
-
-        }
         mCamera?.startPreview();
-        Timer().schedule(object  : TimerTask(){
+        task = object : TimerTask() {
             override fun run() {
-
                 Handler(Looper.getMainLooper()).post {
-                    mCamera?.takePicture(null, null, mPicture)
+                    if(isCameraReady) {
+                        mCamera?.takePicture(null, null, mPicture)
+                        isCameraReady = false
+                    }
                 }
             }
-        }, 2500L, 333)
+        }
+        timer = Timer().also {
+            it.schedule(task, 5000L, 100) // Trying max of 10 fps
+        }
     }
 
-    private var mPicture : Camera.PictureCallback? = null
+    // Main callback
+    private val mPicture : Camera.PictureCallback = Camera.PictureCallback { data, _ ->
+        try {
+            CameraStream.setNewCameraImage(data)
+            /*
+             val pictureFile: File = getFileFromStorage("camera.jpg")
+             Log.d("PICTURE", pictureFile.toString() + " ")
+            val fos = FileOutputStream(pictureFile)
+            fos.write(data)
+            fos.close()
+            */
+        } catch (e: FileNotFoundException) {
+            Log.d(TAG, "File not found: ${e.message}")
+        } catch (e: IOException) {
+            Log.d(TAG, "Error accessing file: ${e.message}")
+        }
 
+        mCamera?.startPreview();
+        isCameraReady = true
+    }
+
+    private var isCameraReady = true // Flag for camera, that is release after picter callback
+    private var timer : Timer? = null
+    private var task : TimerTask? = null
 
     //#############################
 

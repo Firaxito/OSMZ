@@ -3,6 +3,7 @@ package eu.petrfaruzel.osmz
 import android.util.Log
 import androidx.loader.content.AsyncTaskLoader
 import java.io.BufferedWriter
+import java.io.IOException
 import java.net.Socket
 import java.net.SocketException
 
@@ -31,10 +32,10 @@ class CameraStream {
                         output.flush()
                         output.write("--${RequestWorker.MJPEG_BOUNDARY}".toByteArray())
                         output.flush()
-                    } catch (e : SocketException){
+                    } catch (e : Exception){
                         Log.i(TAG, "Connection broken: $e")
                         it.close()
-                        cameraListeners.remove(it)
+                        detachSocket(it)
                     }
                 }.start()
             }

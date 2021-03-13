@@ -26,8 +26,9 @@ class RequestWorker(
         const val MJPEG_BOUNDARY = "OSMZ_boundary"
 
     }
+
     val specialRequests =
-        listOf<Pair<String, (socket: Socket, path : String,  httpProtocol: String?, expectedResponse: ResponseCode) -> Unit>>(
+        listOf<Pair<String, (socket: Socket, path: String, httpProtocol: String?, expectedResponse: ResponseCode) -> Unit>>(
             //Requests
             Pair("/camera/stream", this::processCameraRequest)
         )
@@ -66,9 +67,9 @@ class RequestWorker(
         Log.d("SERVER RESPONSE CONTENT", "Video stream")
 
         CameraStream.attachSocket(socket)
-        while(!socket.isClosed && socket.isConnected) {
+        while (!socket.isClosed && socket.isConnected) {
             // Loop until socked is closed
-           sleep(100)
+            sleep(100)
         }
     }
 
@@ -146,7 +147,7 @@ class RequestWorker(
                 }
             }
 
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             if (socket != null && socket!!.isClosed)
                 Log.d(
                     TAG, "Normal exit"
@@ -200,26 +201,6 @@ class RequestWorker(
         )
     }
 
-    private fun getContent(responseCode: ResponseCode, path: String?): ByteArray {
-        return when (responseCode) {
-            ResponseCode.CODE_200 -> {
-                getFileContent(path)
-            }
-            ResponseCode.CODE_404 -> get404Content()
-            ResponseCode.CODE_503 -> get503Content()
-        }
-    }
-
-    private fun getFileContent(path: String?): ByteArray {
-        if (path != null) {
-            val file = getFileFromStorage(path)
-            if (file.exists()) {
-                return file.readBytes()
-            }
-        }
-
-        return get404Content()
-    }
 
     private fun get404Content(): ByteArray {
         val file = getFileFromStorage("/404.html")
@@ -283,10 +264,35 @@ class RequestWorker(
         out.flush()
         Log.d("SERVER RESPONSE HEADER", header.getStringResponse())
 
-        // Load and write content
-        val content = getContent(header.responseCode, modifiedPath)
-        output.write(content)
-        output.flush()
+        // Load and write (Now with buffer! [as requested]
+        val content: ByteArray? = when (header.responseCode) {
+            ResponseCode.CODE_200 -> {
+                if (modifiedPath != null) {
+                    val file = getFileFromStorage(modifiedPath)
+                    if (file.exists()) {
+                        // Buffered respoonse
+                        val buff = ByteArray(4096)
+                        file.inputStream().buffered().use { input ->
+                            while(true) {
+                                val sz = input.read(buff)
+                                if (sz <= 0) break
+                                output.write(buff)
+                                output.flush()
+                            }
+                        }
+                        null
+                    }
+                }
+                get404Content()
+            }
+            ResponseCode.CODE_404 -> get404Content()
+            ResponseCode.CODE_503 -> get503Content()
+        }
+
+        if (content != null) {
+            output.write(content)
+            output.flush()
+        }
 
         // Notify world that response is sent
         requestListener?.onRequestProcessed(
@@ -298,7 +304,7 @@ class RequestWorker(
         // Log response content
         if (header.mimeType.contains("text")) Log.d(
             "SERVER RESPONSE CONTENT",
-            content.decodeToString()
+            content?.decodeToString() ?: "File content"
         )
         else Log.d("SERVER RESPONSE CONTENT", "Non-textual content (image probably)")
     }
